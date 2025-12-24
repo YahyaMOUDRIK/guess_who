@@ -1,0 +1,150 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.card:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.eliminated {
+  opacity: 0.4;
+}
+
+.eliminated:hover {
+  opacity: 0.6;
+}
+
+.selected {
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 20px rgba(255, 230, 109, 0.4);
+}
+
+.imageWrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  cursor: pointer;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.2);
+  border: none;
+  padding: 0;
+  display: block;
+}
+
+.image {
+  object-fit: cover;
+  object-position: center;
+  transition: transform 0.3s ease;
+}
+
+.imageWrapper:hover .image {
+  transform: scale(1.05);
+}
+
+.imageWrapper:hover .placeholder {
+  transform: scale(1.05);
+}
+
+.placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, rgba(78, 205, 196, 0.2) 0%, rgba(255, 107, 53, 0.2) 100%);
+  gap: 4px;
+}
+
+.placeholderEmoji {
+  font-size: 2.5rem;
+  opacity: 0.8;
+}
+
+.placeholderId {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+.eliminatedOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.xMark {
+  font-size: 3rem;
+  color: var(--color-error);
+  font-weight: bold;
+  text-shadow: 0 0 10px rgba(248, 113, 113, 0.8);
+}
+
+.info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.name {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.selectButton {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.selectButton:hover {
+  background: rgba(255, 230, 109, 0.2);
+  color: var(--color-accent);
+}
+
+.selectedButton {
+  background: var(--color-accent) !important;
+  color: var(--color-bg-dark) !important;
+}
+
+@media (max-width: 600px) {
+  .name {
+    font-size: 0.65rem;
+  }
+
+  .selectButton {
+    width: 24px;
+    height: 24px;
+    font-size: 0.9rem;
+  }
+
+  .xMark {
+    font-size: 2rem;
+  }
+}
+

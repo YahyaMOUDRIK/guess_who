@@ -1,0 +1,51 @@
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-full);
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.connected {
+  background: rgba(74, 222, 128, 0.15);
+  color: var(--color-success);
+}
+
+.disconnected {
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--color-warning);
+}
+
+.indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transition: all 0.3s ease;
+}
+
+.connected .indicator {
+  background: var(--color-success);
+  box-shadow: 0 0 10px var(--color-success);
+}
+
+.disconnected .indicator {
+  background: var(--color-warning);
+  animation: pulse 1.5s infinite;
+}
+
+.text {
+  letter-spacing: 0.5px;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
