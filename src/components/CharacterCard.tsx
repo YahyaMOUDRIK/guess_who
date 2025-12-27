@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import styles from "./CharacterCard.module.css";
-import { Character } from "@/data/characters";
+import { Character } from "@/hooks/useSocket";
 
 interface CharacterCardProps {
   character: Character;
@@ -11,6 +11,7 @@ interface CharacterCardProps {
   isSelected: boolean;
   onToggleEliminate: () => void;
   onSelect: () => void;
+  isPicking?: boolean;
 }
 
 export function CharacterCard({
@@ -19,53 +20,55 @@ export function CharacterCard({
   isSelected,
   onToggleEliminate,
   onSelect,
+  isPicking = false,
 }: CharacterCardProps) {
   const [imageError, setImageError] = useState(false);
 
   return (
     <div
-      className={`${styles.card} ${isEliminated ? styles.eliminated : ""} ${
-        isSelected ? styles.selected : ""
-      }`}
+      className={`${styles.cardContainer} ${isEliminated ? styles.flipped : ""}`}
+      onClick={!isPicking ? onToggleEliminate : undefined}
     >
-      <button
-        type="button"
-        className={styles.imageWrapper}
-        onClick={onToggleEliminate}
-        aria-label={isEliminated ? `Restore ${character.name}` : `Eliminate ${character.name}`}
-      >
-        {imageError ? (
-          <div className={styles.placeholder}>
-            <span className={styles.placeholderEmoji}>👤</span>
-            <span className={styles.placeholderId}>{character.id}</span>
+      <div className={styles.cardInner}>
+        {/* Front of the card */}
+        <div className={`${styles.cardFront} ${isSelected ? styles.selected : ""}`}>
+          <div className={styles.imageWrapper}>
+            {imageError ? (
+              <div className={styles.placeholder}>
+                <span className={styles.placeholderEmoji}>👤</span>
+              </div>
+            ) : (
+              <img
+                src={character.image}
+                alt={character.name}
+                className={styles.image}
+                onError={() => setImageError(true)}
+              />
+            )}
           </div>
-        ) : (
-          <Image
-            src={character.image}
-            alt={character.name}
-            fill
-            className={styles.image}
-            sizes="(max-width: 768px) 80px, 120px"
-            onError={() => setImageError(true)}
-          />
-        )}
-        {isEliminated && (
-          <div className={styles.eliminatedOverlay}>
-            <span className={styles.xMark}>✕</span>
+          <div className={styles.info}>
+            <span className={styles.name}>{character.name}</span>
+            {isPicking && (
+              <button
+                className={`${styles.selectButton} ${isSelected ? styles.selectedButton : ""}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelect();
+                }}
+              >
+                {isSelected ? "Selected" : "Pick"}
+              </button>
+            )}
           </div>
-        )}
-      </button>
-      <div className={styles.info}>
-        <span className={styles.name}>{character.name}</span>
-        <button
-          className={`${styles.selectButton} ${isSelected ? styles.selectedButton : ""}`}
-          onClick={onSelect}
-          title={isSelected ? "Unselect" : "Pick this character"}
-        >
-          {isSelected ? "★" : "☆"}
-        </button>
+        </div>
+
+        {/* Back of the card */}
+        <div className={styles.cardBack}>
+          <div className={styles.backPattern}>
+            <span>?</span>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
-

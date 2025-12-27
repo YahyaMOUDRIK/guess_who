@@ -1,101 +1,200 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import styles from "./GameBoard.module.css";
-import { CharacterGrid, GameState } from "./CharacterGrid";
+import { CharacterGrid } from "./CharacterGrid";
 import { Room } from "@/hooks/useSocket";
-import { Socket } from "socket.io-client";
 
 interface GameBoardProps {
   room: Room;
   playerId: string | null;
-  socket: Socket | null;
   onLeave: () => void;
+  pickCharacter: (id: string) => void;
+  toggleElimination: (id: string) => void;
+  validateTurn: () => void;
+  lockGuess: (id: string) => void;
 }
 
-export function GameBoard({ room, playerId, socket, onLeave }: GameBoardProps) {
-  const [gameState, setGameState] = useState<GameState | null>(null);
-  const [opponentReady, setOpponentReady] = useState(false);
-  const isHost = room.players[0]?.id === playerId;
-  const playerNumber = isHost ? 1 : 2;
+export function GameBoard({
+  room,
+  playerId,
+  onLeave,
+  pickCharacter,
+  toggleElimination,
+  validateTurn,
+  lockGuess,
+}: GameBoardProps) {
+  const me = room.players.find((p) => p.id === playerId);
+  const opponent = room.players.find((p) => p.id !== playerId);
+  const isMyTurn = room.turn === playerId;
+  const myChoice = room.characters.find((c) => c.id === me?.choice);
 
-  // Listen for opponent's ready state
+  const [localFlipped, setLocalFlipped] = useState<string[]>([]);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(room.code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Sync horizontal state
   useEffect(() => {
-    if (!socket) return;
-
-    const handleOpponentReady = () => {
-      setOpponentReady(true);
-    };
-
-    socket.on("opponent-ready", handleOpponentReady);
-
-    return () => {
-      socket.off("opponent-ready", handleOpponentReady);
-    };
-  }, [socket]);
-
-  // Notify when we're ready (have a game state)
-  useEffect(() => {
-    if (socket && gameState) {
-      socket.emit("player-ready", { roomCode: room.code });
+    if (me) {
+      setLocalFlipped(me.eliminated);
     }
-  }, [socket, gameState, room.code]);
+  }, [me?.eliminated]);
 
-  const handleStateChange = useCallback((state: GameState) => {
-    setGameState(state);
-  }, []);
-
-  const copyRoomCode = async () => {
-    try {
-      await navigator.clipboard.writeText(room.code);
-    } catch (err) {
-      console.error("Failed to copy:", err);
+  const handleToggle = (id: string) => {
+    if (room.status === "playing" && isMyTurn) {
+      toggleElimination(id);
     }
   };
+
+  const handleLockGuess = () => {
+    if (room.status === "playing" && isMyTurn) {
+      const remaining = room.characters.filter(c => !me?.eliminated.includes(c.id));
+      const target = remaining.length === 1 ? remaining[0] : null;
+
+      const confirmMsg = target
+        ? `Are you sure you want to guess ${target.name}? If you're wrong, you lose!`
+        : "You have multiple cards left. To guess now, you must pick one specific character. (Tip: eliminate others first or just guess by common sense if you're brave!)";
+
+      if (target) {
+        if (confirm(confirmMsg)) {
+          lockGuess(target.id);
+        }
+      } else {
+        alert("Please eliminate all but one character before locking your guess, or select a character to guess (functionality for selecting a specific guess without elimination is not yet implemented, please eliminate cards until only one remains).");
+      }
+    }
+  };
+
+
+  if (room.status === "waiting") {
+    return (
+      <div className={styles.waitingContainer}>
+        <div className={styles.loader}></div>
+        <h2>Waiting for an opponent...</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <p style={{ margin: 0 }}>Share code: <strong>{room.code}</strong></p>
+          <button
+            onClick={handleCopy}
+            style={{
+              background: copied ? '#10b981' : '#3b82f6',
+              color: 'white',
+              border: 'none',
+              padding: '6px 12px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '0.9rem',
+              fontWeight: 600,
+              transition: 'background 0.2s'
+            }}
+          >
+            {copied ? "Copied!" : "Copy"}
+          </button>
+        </div>
+        <button onClick={onLeave} className={styles.leaveButton}>Exit</button>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <div className={styles.headerLeft}>
-          <button className={styles.leaveButton} onClick={onLeave}>
-            ← Leave
-          </button>
-          <div className={styles.roomInfo}>
-            <span className={styles.roomCode} onClick={copyRoomCode} title="Click to copy">
-              {room.code}
-            </span>
-            <span className={styles.playerBadge}>Player {playerNumber}</span>
+        <div className={styles.headerTop}>
+          <div className={styles.left}>
+            <button className={styles.leaveButtonSmall} onClick={onLeave}>←</button>
+            <div className={styles.roomBadge}>Room: {room.code}</div>
           </div>
-        </div>
-        <h1 className={styles.title}>Guess Who?</h1>
-        <div className={styles.headerRight}>
-          <div className={styles.playersStatus}>
-            {room.players.map((player, idx) => (
-              <div
-                key={player.id}
-                className={`${styles.playerDot} ${player.id === playerId ? styles.you : ""}`}
-                title={`Player ${idx + 1}${player.id === playerId ? " (You)" : ""}`}
-              >
-                {idx + 1}
+
+          <div className={styles.center}>
+            {room.status === "picking" ? (
+              <h2 className={styles.statusText}>Pick Your Character</h2>
+            ) : (
+              <div className={styles.turnIndicator}>
+                {isMyTurn ? (
+                  <span className={styles.yourTurn}>Your Turn</span>
+                ) : (
+                  <span className={styles.opponentTurn}>Opponent&apos;s Turn</span>
+                )}
               </div>
-            ))}
-            {room.players.length < 2 && (
-              <div className={styles.playerDot + " " + styles.waiting}>?</div>
+            )}
+          </div>
+
+          <div className={styles.right}>
+            {opponent && (
+              <div className={styles.opponentStats}>
+                <span className={styles.statLabel}>Opponent:</span>
+                <span className={styles.statValue}>{room.characters.length - (opponent.eliminated?.length || 0)} left</span>
+              </div>
             )}
           </div>
         </div>
+
+        {room.status === "playing" && myChoice && (
+          <div className={styles.myChoiceBar}>
+            <div className={styles.myChoiceInfo}>
+              <span>Your character:</span>
+              <strong>{myChoice.name}</strong>
+            </div>
+            <img src={myChoice.image} alt={myChoice.name} className={styles.myChoiceImg} />
+          </div>
+        )}
       </header>
 
       <main className={styles.main}>
-        {room.players.length < 2 && (
-          <div className={styles.waitingBanner}>
-            <span>👥 Waiting for opponent... Share code: </span>
-            <strong onClick={copyRoomCode}>{room.code}</strong>
+        <CharacterGrid
+          characters={room.characters}
+          eliminatedIds={me?.eliminated || []}
+          selectedId={me?.choice || null}
+          onToggleEliminate={handleToggle}
+          onSelect={pickCharacter}
+          isPicking={room.status === "picking"}
+        />
+      </main>
+
+      <footer className={styles.footer}>
+        {room.status === "picking" && (
+          <div className={styles.pickingFooter}>
+            {me?.choice ? (
+              <p>You picked <strong>{room.characters.find(c => c.id === me.choice)?.name}</strong>. Waiting for opponent...</p>
+            ) : (
+              <p>Select a character from the grid above to start the game.</p>
+            )}
           </div>
         )}
-        <CharacterGrid onStateChange={handleStateChange} />
-      </main>
+
+        {room.status === "playing" && (
+          <div className={styles.actionRow}>
+            <button
+              className={styles.validateButton}
+              onClick={validateTurn}
+              disabled={!isMyTurn}
+            >
+              Validate & End Turn
+            </button>
+            <button
+              className={styles.guessButton}
+              onClick={handleLockGuess}
+              disabled={!isMyTurn || me?.eliminated.length !== (room.characters.length - 1)}
+            >
+              Lock Final Guess
+            </button>
+          </div>
+        )}
+
+        {room.status === "finished" && (
+          <div className={styles.gameOver}>
+            <h2>Game Over!</h2>
+            <p className={styles.winnerText}>
+              {room.winner === playerId ? "🏆 You Won!" : "❌ You Lost!"}
+            </p>
+            <button onClick={onLeave} className={styles.playAgain}>Back to Lobby</button>
+          </div>
+        )}
+      </footer>
     </div>
   );
 }
-

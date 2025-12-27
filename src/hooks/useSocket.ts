@@ -7,12 +7,24 @@ import { getSocket } from "@/lib/socket";
 export interface Player {
   id: string;
   ready: boolean;
+  choice: string | null;
+  eliminated: string[];
+  finalized: boolean;
+}
+
+export interface Character {
+  id: string;
+  name: string;
+  image: string;
 }
 
 export interface Room {
   code: string;
   players: Player[];
-  status: "waiting" | "playing" | "finished";
+  status: "waiting" | "picking" | "playing" | "finished";
+  characters: Character[];
+  turn: string | null;
+  winner: string | null;
   createdAt: number;
 }
 
@@ -24,6 +36,10 @@ export interface UseSocketReturn {
   createRoom: () => Promise<Room | null>;
   joinRoom: (code: string) => Promise<{ success: boolean; error?: string }>;
   leaveRoom: () => void;
+  pickCharacter: (characterId: string) => void;
+  toggleElimination: (characterId: string) => void;
+  validateTurn: () => void;
+  lockGuess: (characterId: string) => void;
 }
 
 // Store room state outside component to persist across strict mode remounts
@@ -36,15 +52,37 @@ export function useSocket(): UseSocketReturn {
   const [playerId, setPlayerId] = useState<string | null>(null);
   const mountedRef = useRef(false);
 
-  // Sync persisted room state
+  // Initialize persistent player ID (per session/tab)
+  useEffect(() => {
+    let pid = sessionStorage.getItem("guess-who-player-id");
+    if (!pid) {
+      pid = Math.random().toString(36).substring(2, 15);
+      sessionStorage.setItem("guess-who-player-id", pid);
+    }
+    setPlayerId(pid);
+  }, []);
+
+  // Sync Room to URL and Persisted State
   useEffect(() => {
     if (currentRoom) {
       persistedRoom = currentRoom;
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("room") !== currentRoom.code) {
+        url.searchParams.set("room", currentRoom.code);
+        window.history.pushState({}, "", url.toString());
+      }
+    } else {
+      persistedRoom = null;
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("room")) {
+        url.searchParams.delete("room");
+        window.history.pushState({}, "", url.toString());
+      }
     }
   }, [currentRoom]);
 
   useEffect(() => {
-    // Skip duplicate mount in strict mode
+    if (!playerId) return; // Wait for playerId
     if (mountedRef.current) return;
     mountedRef.current = true;
 
@@ -53,34 +91,21 @@ export function useSocket(): UseSocketReturn {
 
     const onConnect = () => {
       setIsConnected(true);
-      setPlayerId(socketInstance.id || null);
-      
-      // If we had a room, try to re-sync (the socket id changed)
-      if (persistedRoom) {
-        // Check if we're still in that room on the server
-        socketInstance.emit("get-room", persistedRoom.code, (response: { success: boolean; room?: Room }) => {
+
+      // Auto-rejoin if room code in URL
+      const urlParams = new URLSearchParams(window.location.search);
+      const roomCode = urlParams.get("room");
+      if (roomCode) {
+        socketInstance.emit("join-room", roomCode, playerId, (response: any) => {
           if (response.success && response.room) {
-            // Check if our socket is still in the room
-            const stillInRoom = response.room.players.some(p => p.id === socketInstance.id);
-            if (!stillInRoom) {
-              // Try to rejoin
-              socketInstance.emit("join-room", persistedRoom!.code, (joinResponse: { success: boolean; room?: Room }) => {
-                if (joinResponse.success && joinResponse.room) {
-                  setCurrentRoom(joinResponse.room);
-                  persistedRoom = joinResponse.room;
-                } else {
-                  // Room doesn't exist or is full, clear it
-                  setCurrentRoom(null);
-                  persistedRoom = null;
-                }
-              });
-            } else {
-              setCurrentRoom(response.room);
-            }
+            console.log("Auto-joined room:", response.room.code, response.room.status);
+            setCurrentRoom(response.room);
           } else {
-            // Room no longer exists
+            // Room exists check failed or other error
+            const url = new URL(window.location.href);
+            url.searchParams.delete("room");
+            window.history.pushState({}, "", url.toString());
             setCurrentRoom(null);
-            persistedRoom = null;
           }
         });
       }
@@ -90,83 +115,87 @@ export function useSocket(): UseSocketReturn {
       setIsConnected(false);
     };
 
-    const onPlayerJoined = ({ room }: { playerId: string; room: Room }) => {
+    const onRoomUpdate = (room: Room) => {
+      console.log("Room updated from socket event:", room.status, room);
       setCurrentRoom(room);
-      persistedRoom = room;
-    };
-
-    const onPlayerLeft = ({ room }: { playerId: string; room: Room }) => {
-      setCurrentRoom(room);
-      persistedRoom = room;
     };
 
     socketInstance.on("connect", onConnect);
     socketInstance.on("disconnect", onDisconnect);
-    socketInstance.on("player-joined", onPlayerJoined);
-    socketInstance.on("player-left", onPlayerLeft);
+    socketInstance.on("room-update", onRoomUpdate);
 
-    // Check if already connected
     if (socketInstance.connected) {
-      setIsConnected(true);
-      setPlayerId(socketInstance.id || null);
+      onConnect();
     }
 
     return () => {
+      console.log("Cleaning up socket listeners");
       socketInstance.off("connect", onConnect);
       socketInstance.off("disconnect", onDisconnect);
-      socketInstance.off("player-joined", onPlayerJoined);
-      socketInstance.off("player-left", onPlayerLeft);
+      socketInstance.off("room-update", onRoomUpdate);
       mountedRef.current = false;
     };
-  }, []);
+  }, [playerId]);
 
   const createRoom = useCallback(async (): Promise<Room | null> => {
-    if (!socket) return null;
-
+    if (!socket || !playerId) return null;
     return new Promise((resolve) => {
-      socket.emit("create-room", (response: { success: boolean; room?: Room }) => {
+      socket.emit("create-room", playerId, (response: { success: boolean; room?: Room }) => {
         if (response.success && response.room) {
           setCurrentRoom(response.room);
-          persistedRoom = response.room;
           resolve(response.room);
         } else {
           resolve(null);
         }
       });
     });
-  }, [socket]);
+  }, [socket, playerId]);
 
   const joinRoom = useCallback(
     async (code: string): Promise<{ success: boolean; error?: string }> => {
-      if (!socket) return { success: false, error: "Not connected" };
-
+      if (!socket || !playerId) return { success: false, error: "Not connected" };
       return new Promise((resolve) => {
-        socket.emit(
-          "join-room",
-          code,
-          (response: { success: boolean; room?: Room; error?: string }) => {
-            if (response.success && response.room) {
-              setCurrentRoom(response.room);
-              persistedRoom = response.room;
-              resolve({ success: true });
-            } else {
-              resolve({ success: false, error: response.error });
-            }
+        socket.emit("join-room", code.toUpperCase(), playerId, (response: { success: boolean; room?: Room; error?: string }) => {
+          if (response.success && response.room) {
+            console.log("Joined room manually:", response.room.code, response.room.status);
+            setCurrentRoom(response.room);
+            resolve({ success: true });
+          } else {
+            resolve({ success: false, error: response.error });
           }
-        );
+        });
       });
     },
-    [socket]
+    [socket, playerId]
   );
 
   const leaveRoom = useCallback(() => {
     if (!socket) return;
-
     socket.emit("leave-room", () => {
       setCurrentRoom(null);
       persistedRoom = null;
     });
   }, [socket]);
+
+  const pickCharacter = useCallback((characterId: string) => {
+    if (!socket || !currentRoom) return;
+    socket.emit("pick-character", { roomCode: currentRoom.code, characterId });
+  }, [socket, currentRoom]);
+
+  const toggleElimination = useCallback((characterId: string) => {
+    if (!socket || !currentRoom) return;
+    socket.emit("toggle-elimination", { roomCode: currentRoom.code, characterId });
+  }, [socket, currentRoom]);
+
+  const validateTurn = useCallback(() => {
+    if (!socket || !currentRoom) return;
+    socket.emit("validate-turn", { roomCode: currentRoom.code });
+  }, [socket, currentRoom]);
+
+  const lockGuess = useCallback((characterId: string) => {
+    if (!socket || !currentRoom) return;
+    socket.emit("lock-guess", { roomCode: currentRoom.code, characterId });
+  }, [socket, currentRoom]);
 
   return {
     socket,
@@ -176,5 +205,10 @@ export function useSocket(): UseSocketReturn {
     createRoom,
     joinRoom,
     leaveRoom,
+    pickCharacter,
+    toggleElimination,
+    validateTurn,
+    lockGuess,
   };
 }
+

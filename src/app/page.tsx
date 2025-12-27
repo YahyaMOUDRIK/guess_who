@@ -8,8 +8,20 @@ import { RoomLobby } from "@/components/RoomLobby";
 import { GameRoom } from "@/components/GameRoom";
 
 export default function Home() {
-  const { socket, isConnected, currentRoom, playerId, createRoom, joinRoom, leaveRoom } =
-    useSocket();
+  const {
+    socket,
+    isConnected,
+    currentRoom,
+    playerId,
+    createRoom,
+    joinRoom,
+    leaveRoom,
+    pickCharacter,
+    toggleElimination,
+    validateTurn,
+    lockGuess
+  } = useSocket();
+
   const [joinCode, setJoinCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -63,9 +75,14 @@ export default function Home() {
         playerId={playerId}
         socket={socket}
         onLeave={handleLeaveRoom}
+        pickCharacter={pickCharacter}
+        toggleElimination={toggleElimination}
+        validateTurn={validateTurn}
+        lockGuess={lockGuess}
       />
     );
   }
+
 
   // Otherwise show the lobby
   return (
@@ -115,6 +132,11 @@ export default function Home() {
                 className={styles.input}
                 maxLength={6}
                 disabled={!isConnected || isLoading}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && joinCode.trim() && !isLoading && isConnected) {
+                    handleJoinRoom();
+                  }
+                }}
               />
               <button
                 className={styles.buttonSecondary}

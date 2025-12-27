@@ -2,6 +2,8 @@ const { createServer } = require("http");
 const { parse } = require("url");
 const next = require("next");
 const { Server } = require("socket.io");
+const fs = require("fs");
+const path = require("path");
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "localhost";
@@ -10,10 +12,19 @@ const port = parseInt(process.env.PORT || "3000", 10);
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
+// Load characters from JSON
+const charactersData = JSON.parse(fs.readFileSync(path.join(__dirname, "characters.json"), "utf8"));
+const allCharacters = Object.entries(charactersData).map(([filename, name]) => ({
+  id: filename,
+  name: name,
+  image: `/characters/${filename}`,
+}));
+
 // In-memory game state
 const rooms = new Map();
+const socketToPlayer = new Map(); // socket.id -> { roomCode, persistentId }
 
-// Generate a random 6-character room code
+// Helpers
 function generateRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
@@ -23,18 +34,27 @@ function generateRoomCode() {
   return code;
 }
 
-// Create a new room
-function createRoom(hostSocketId) {
-  let code = generateRoomCode();
-  // Ensure unique code
-  while (rooms.has(code)) {
-    code = generateRoomCode();
+function shuffle(array) {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
+  return shuffled;
+}
+
+// Room logic
+function createRoom(persistentId) {
+  let code = generateRoomCode();
+  while (rooms.has(code)) code = generateRoomCode();
 
   const room = {
     code,
-    players: [{ id: hostSocketId, ready: false }],
-    status: "waiting", // waiting, playing, finished
+    players: [{ id: persistentId, ready: false, choice: null, eliminated: [], finalized: false }],
+    status: "waiting",
+    characters: [],
+    turn: null,
+    winner: null,
     createdAt: Date.now(),
   };
 
@@ -42,47 +62,23 @@ function createRoom(hostSocketId) {
   return room;
 }
 
-// Join an existing room
-function joinRoom(code, playerSocketId) {
+function joinRoom(code, persistentId) {
   const room = rooms.get(code);
-  if (!room) {
-    return { error: "Room not found" };
-  }
-  if (room.players.length >= 2) {
-    return { error: "Room is full" };
-  }
-  if (room.players.some((p) => p.id === playerSocketId)) {
-    return { error: "Already in room" };
+  if (!room) return { error: "Room not found" };
+
+  const existingPlayer = room.players.find(p => p.id === persistentId);
+  if (existingPlayer) return { room }; // Rejoin
+
+  if (room.players.length >= 2) return { error: "Room is full" };
+
+  room.players.push({ id: persistentId, ready: false, choice: null, eliminated: [], finalized: false });
+
+  if (room.players.length === 2) {
+    room.status = "picking";
+    room.characters = shuffle(allCharacters).slice(0, 25);
   }
 
-  room.players.push({ id: playerSocketId, ready: false });
   return { room };
-}
-
-// Remove player from room
-function leaveRoom(socketId) {
-  for (const [code, room] of rooms.entries()) {
-    const playerIndex = room.players.findIndex((p) => p.id === socketId);
-    if (playerIndex !== -1) {
-      room.players.splice(playerIndex, 1);
-      if (room.players.length === 0) {
-        rooms.delete(code);
-        return { code, deleted: true };
-      }
-      return { code, room, deleted: false };
-    }
-  }
-  return null;
-}
-
-// Get room by player socket id
-function getRoomByPlayer(socketId) {
-  for (const [code, room] of rooms.entries()) {
-    if (room.players.some((p) => p.id === socketId)) {
-      return { code, room };
-    }
-  }
-  return null;
 }
 
 app.prepare().then(() => {
@@ -92,105 +88,118 @@ app.prepare().then(() => {
   });
 
   const io = new Server(httpServer, {
-    cors: {
-      origin: "*",
-      methods: ["GET", "POST"],
-    },
+    cors: { origin: "*", methods: ["GET", "POST"] },
     transports: ["websocket", "polling"],
   });
 
   io.on("connection", (socket) => {
     console.log(`Client connected: ${socket.id}`);
 
-    // Create a new room
-    socket.on("create-room", (callback) => {
-      const room = createRoom(socket.id);
+    socket.on("create-room", (persistentId, callback) => {
+      const room = createRoom(persistentId);
       socket.join(room.code);
-      console.log(`Room created: ${room.code} by ${socket.id}`);
-      callback({ success: true, room });
+      socketToPlayer.set(socket.id, { roomCode: room.code, persistentId });
+      if (typeof callback === "function") callback({ success: true, room });
     });
 
-    // Join an existing room
-    socket.on("join-room", (code, callback) => {
-      const result = joinRoom(code.toUpperCase(), socket.id);
+    socket.on("join-room", (code, persistentId, callback) => {
+      const result = joinRoom(code.toUpperCase(), persistentId);
       if (result.error) {
-        callback({ success: false, error: result.error });
+        if (typeof callback === "function") callback({ success: false, error: result.error });
         return;
       }
-
       socket.join(code.toUpperCase());
-      console.log(`Player ${socket.id} joined room: ${code}`);
-
-      // Notify other players in the room
-      socket.to(code.toUpperCase()).emit("player-joined", {
-        playerId: socket.id,
-        room: result.room,
-      });
-
-      callback({ success: true, room: result.room });
+      socketToPlayer.set(socket.id, { roomCode: code.toUpperCase(), persistentId });
+      io.to(code.toUpperCase()).emit("room-update", result.room);
+      if (typeof callback === "function") callback({ success: true, room: result.room });
     });
 
-    // Get room info
-    socket.on("get-room", (code, callback) => {
-      const room = rooms.get(code.toUpperCase());
-      if (!room) {
-        callback({ success: false, error: "Room not found" });
-        return;
-      }
-      callback({ success: true, room });
-    });
-
-    // Leave room
-    socket.on("leave-room", (callback) => {
-      const result = leaveRoom(socket.id);
-      if (result) {
-        socket.leave(result.code);
-        if (!result.deleted) {
-          socket.to(result.code).emit("player-left", {
-            playerId: socket.id,
-            room: result.room,
-          });
-        }
-        console.log(`Player ${socket.id} left room: ${result.code}`);
-      }
-      if (callback) callback({ success: true });
-    });
-
-    // Handle disconnect
-    socket.on("disconnect", () => {
-      console.log(`Client disconnected: ${socket.id}`);
-      const result = leaveRoom(socket.id);
-      if (result && !result.deleted) {
-        io.to(result.code).emit("player-left", {
-          playerId: socket.id,
-          room: result.room,
-        });
-      }
-    });
-
-    // Player is ready (game board loaded)
-    socket.on("player-ready", ({ roomCode }) => {
-      const room = rooms.get(roomCode);
-      if (room) {
-        const player = room.players.find((p) => p.id === socket.id);
+    socket.on("pick-character", ({ roomCode, characterId }) => {
+      const room = rooms.get(roomCode.toUpperCase());
+      const playerInfo = socketToPlayer.get(socket.id);
+      if (room && room.status === "picking" && playerInfo) {
+        const player = room.players.find(p => p.id === playerInfo.persistentId);
         if (player) {
-          player.ready = true;
-          // Notify opponent that this player is ready
-          socket.to(roomCode).emit("opponent-ready", { playerId: socket.id });
-          console.log(`Player ${socket.id} is ready in room ${roomCode}`);
+          player.choice = characterId;
+          if (room.players.every(p => p.choice !== null)) {
+            room.status = "playing";
+            room.turn = room.players[Math.floor(Math.random() * 2)].id;
+          }
+          io.to(roomCode.toUpperCase()).emit("room-update", room);
         }
       }
     });
 
-    // Ping for connection testing
-    socket.on("ping", (callback) => {
-      callback({ pong: true, timestamp: Date.now() });
+    socket.on("toggle-elimination", ({ roomCode, characterId }) => {
+      const room = rooms.get(roomCode.toUpperCase());
+      const playerInfo = socketToPlayer.get(socket.id);
+      if (room && room.status === "playing" && playerInfo) {
+        if (room.turn !== playerInfo.persistentId) return;
+        const player = room.players.find(p => p.id === playerInfo.persistentId);
+        if (player) {
+          if (player.eliminated.includes(characterId)) {
+            player.eliminated = player.eliminated.filter(id => id !== characterId);
+          } else {
+            player.eliminated.push(characterId);
+          }
+          io.to(roomCode.toUpperCase()).emit("room-update", room);
+        }
+      }
+    });
+
+    socket.on("validate-turn", ({ roomCode }) => {
+      const room = rooms.get(roomCode.toUpperCase());
+      const playerInfo = socketToPlayer.get(socket.id);
+      if (room && room.status === "playing" && playerInfo && room.turn === playerInfo.persistentId) {
+        const nextPlayer = room.players.find(p => p.id !== playerInfo.persistentId);
+        room.turn = nextPlayer.id;
+        io.to(roomCode.toUpperCase()).emit("room-update", room);
+      }
+    });
+
+    socket.on("lock-guess", ({ roomCode, characterId }) => {
+      const room = rooms.get(roomCode.toUpperCase());
+      const playerInfo = socketToPlayer.get(socket.id);
+      if (room && room.status === "playing" && playerInfo) {
+        const opponent = room.players.find(p => p.id !== playerInfo.persistentId);
+        if (opponent.choice === characterId) {
+          room.status = "finished";
+          room.winner = playerInfo.persistentId;
+        } else {
+          room.status = "finished";
+          room.winner = opponent.id;
+        }
+        io.to(roomCode.toUpperCase()).emit("room-update", room);
+      }
+    });
+
+    socket.on("leave-room", (callback) => {
+      const info = socketToPlayer.get(socket.id);
+      if (info) {
+        const room = rooms.get(info.roomCode);
+        if (room) {
+          room.players = room.players.filter(p => p.id !== info.persistentId);
+          if (room.players.length === 0) {
+            rooms.delete(info.roomCode);
+          } else {
+            room.status = "waiting";
+            room.characters = [];
+            room.turn = null;
+            io.to(info.roomCode).emit("room-update", room);
+          }
+        }
+        socket.leave(info.roomCode);
+        socketToPlayer.delete(socket.id);
+      }
+      if (typeof callback === "function") callback({ success: true });
+    });
+
+    socket.on("disconnect", () => {
+      socketToPlayer.delete(socket.id);
     });
   });
 
   httpServer.listen(port, () => {
     console.log(`> Ready on http://${hostname}:${port}`);
-    console.log(`> Socket.IO server running`);
   });
 });
-

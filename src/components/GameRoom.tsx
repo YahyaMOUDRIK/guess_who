@@ -8,18 +8,33 @@ import { Socket } from "socket.io-client";
 interface GameRoomProps {
   room: Room;
   playerId: string | null;
-  socket: Socket | null;
+  socket: any; // Use the one from useSocket
   onLeave: () => void;
+  pickCharacter: (id: string) => void;
+  toggleElimination: (id: string) => void;
+  validateTurn: () => void;
+  lockGuess: (id: string) => void;
 }
 
-export function GameRoom({ room, playerId, socket, onLeave }: GameRoomProps) {
-  // Always show the GameBoard - it handles waiting state internally
+export function GameRoom({
+  room,
+  playerId,
+  onLeave,
+  pickCharacter,
+  toggleElimination,
+  validateTurn,
+  lockGuess
+}: GameRoomProps) {
   return (
     <GameBoard
       room={room}
       playerId={playerId}
-      socket={socket}
       onLeave={onLeave}
+      pickCharacter={pickCharacter}
+      toggleElimination={toggleElimination}
+      validateTurn={validateTurn}
+      lockGuess={lockGuess}
     />
   );
 }
+
