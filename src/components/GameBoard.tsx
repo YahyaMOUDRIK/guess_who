@@ -13,6 +13,7 @@ interface GameBoardProps {
   toggleElimination: (id: string) => void;
   validateTurn: () => void;
   lockGuess: (id: string) => void;
+  playAgain: () => void;
 }
 
 export function GameBoard({
@@ -23,6 +24,7 @@ export function GameBoard({
   toggleElimination,
   validateTurn,
   lockGuess,
+  playAgain,
 }: GameBoardProps) {
   const me = room.players.find((p) => p.id === playerId);
   const opponent = room.players.find((p) => p.id !== playerId);
@@ -31,6 +33,7 @@ export function GameBoard({
 
   const [localFlipped, setLocalFlipped] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
+  const [isWaitingForRematch, setIsWaitingForRematch] = useState(false);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(room.code);
@@ -43,7 +46,11 @@ export function GameBoard({
     if (me) {
       setLocalFlipped(me.eliminated);
     }
-  }, [me?.eliminated]);
+    // Reset rematch waiting state if status changes back to picking
+    if (room.status === "picking") {
+      setIsWaitingForRematch(false);
+    }
+  }, [me?.eliminated, room.status]);
 
   const handleToggle = (id: string) => {
     if (room.status === "playing") {
@@ -56,20 +63,18 @@ export function GameBoard({
       const remaining = room.characters.filter(c => !me?.eliminated.includes(c.id));
       const target = remaining.length === 1 ? remaining[0] : null;
 
-      const confirmMsg = target
-        ? `Are you sure you want to guess ${target.name}? If you're wrong, you lose!`
-        : "You have multiple cards left. To guess now, you must pick one specific character. (Tip: eliminate others first or just guess by common sense if you're brave!)";
-
       if (target) {
-        if (confirm(confirmMsg)) {
-          lockGuess(target.id);
-        }
+        lockGuess(target.id);
       } else {
-        alert("Please eliminate all but one character before locking your guess, or select a character to guess (functionality for selecting a specific guess without elimination is not yet implemented, please eliminate cards until only one remains).");
+        alert("Please eliminate all but one character before locking your guess.");
       }
     }
   };
 
+  const handlePlayAgain = () => {
+    playAgain();
+    setIsWaitingForRematch(true);
+  };
 
   if (room.status === "waiting") {
     return (
@@ -102,6 +107,22 @@ export function GameBoard({
 
   return (
     <div className={styles.container}>
+      {room.status === "finished" && (
+        <div className={styles.gameOverOverlay}>
+          <div className={styles.gameOverContent}>
+            <h2 className={styles.winnerText}>
+              {room.winner === playerId ? "🏆 You Won!" : "❌ You Lost!"}
+            </h2>
+            {isWaitingForRematch ? (
+              <p className={styles.waitingText}>Waiting for opponent to play again...</p>
+            ) : (
+              <button onClick={handlePlayAgain} className={styles.playAgain}>Play Again</button>
+            )}
+            <button onClick={onLeave} className={styles.leaveButtonExit}>Back to Menu</button>
+          </div>
+        </div>
+      )}
+
       <header className={styles.header}>
         <div className={styles.headerTop}>
           <div className={styles.left}>
@@ -182,16 +203,6 @@ export function GameBoard({
             >
               Lock Final Guess
             </button>
-          </div>
-        )}
-
-        {room.status === "finished" && (
-          <div className={styles.gameOver}>
-            <h2>Game Over!</h2>
-            <p className={styles.winnerText}>
-              {room.winner === playerId ? "🏆 You Won!" : "❌ You Lost!"}
-            </p>
-            <button onClick={onLeave} className={styles.playAgain}>Back to Lobby</button>
           </div>
         )}
       </footer>

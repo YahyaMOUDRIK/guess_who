@@ -232,6 +232,33 @@ io.on("connection", (socket) => {
     io.to(safeCode).emit("room-update", room);
   });
 
+  socket.on("play-again", ({ roomCode }) => {
+    const safeCode = (roomCode || "").toString().toUpperCase();
+    const room = rooms.get(safeCode);
+    if (!room || room.status !== "finished") return;
+
+    const player = room.players.find(p => p.socketId === socket.id);
+    if (!player) return;
+
+    player.playAgain = true;
+
+    // Check if both players want to play again
+    if (room.players.every(p => p.playAgain)) {
+      room.status = "picking";
+      room.turn = null;
+      room.winner = null;
+      room.players.forEach(p => {
+        p.choice = null;
+        p.eliminated = [];
+        p.playAgain = false;
+        p.finalized = false;
+      });
+      console.log(`Game restarted in room ${safeCode}`);
+    }
+
+    io.to(safeCode).emit("room-update", room);
+  });
+
   socket.on("get-room", (code, callback) => {
     const safeCode = (code || "").toString().toUpperCase();
     const room = rooms.get(safeCode);

@@ -14,6 +14,7 @@ interface GameRoomProps {
   toggleElimination: (id: string) => void;
   validateTurn: () => void;
   lockGuess: (id: string) => void;
+  playAgain: () => void;
 }
 
 export function GameRoom({
@@ -23,7 +24,8 @@ export function GameRoom({
   pickCharacter,
   toggleElimination,
   validateTurn,
-  lockGuess
+  lockGuess,
+  playAgain
 }: GameRoomProps) {
   return (
     <GameBoard
@@ -34,6 +36,7 @@ export function GameRoom({
       toggleElimination={toggleElimination}
       validateTurn={validateTurn}
       lockGuess={lockGuess}
+      playAgain={playAgain}
     />
   );
 }

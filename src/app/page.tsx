@@ -19,7 +19,8 @@ export default function Home() {
     pickCharacter,
     toggleElimination,
     validateTurn,
-    lockGuess
+    lockGuess,
+    playAgain
   } = useSocket();
 
   const [joinCode, setJoinCode] = useState("");
@@ -79,6 +80,7 @@ export default function Home() {
         toggleElimination={toggleElimination}
         validateTurn={validateTurn}
         lockGuess={lockGuess}
+        playAgain={playAgain}
       />
     );
   }

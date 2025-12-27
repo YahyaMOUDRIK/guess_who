@@ -40,6 +40,7 @@ export interface UseSocketReturn {
   toggleElimination: (characterId: string) => void;
   validateTurn: () => void;
   lockGuess: (characterId: string) => void;
+  playAgain: () => void;
 }
 
 // Store room state outside component to persist across strict mode remounts
@@ -197,6 +198,11 @@ export function useSocket(): UseSocketReturn {
     socket.emit("lock-guess", { roomCode: currentRoom.code, characterId });
   }, [socket, currentRoom]);
 
+  const playAgain = useCallback(() => {
+    if (!socket || !currentRoom) return;
+    socket.emit("play-again", { roomCode: currentRoom.code });
+  }, [socket, currentRoom]);
+
   return {
     socket,
     isConnected,
@@ -209,6 +215,7 @@ export function useSocket(): UseSocketReturn {
     toggleElimination,
     validateTurn,
     lockGuess,
+    playAgain,
   };
 }
 
