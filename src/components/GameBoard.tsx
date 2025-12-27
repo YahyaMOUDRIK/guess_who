@@ -46,7 +46,7 @@ export function GameBoard({
   }, [me?.eliminated]);
 
   const handleToggle = (id: string) => {
-    if (room.status === "playing" && isMyTurn) {
+    if (room.status === "playing") {
       toggleElimination(id);
     }
   };
